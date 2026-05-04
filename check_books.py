@@ -151,15 +151,27 @@ def calculate_window_hours():
 
 def check_book(book_name, cutoff):
     """בדיקת ספר אחד מול סימניה"""
+    # ספרים שאנחנו רוצים לדבג עליהם בעומק
+    DEBUG = book_name in ["מצור האפלה"]
+
     try:
         r = requests.get(
             f"https://simania.co.il/api/search?query={book_name}",
             headers=headers, timeout=10
         )
+        if DEBUG:
+            print(f"\n🔬 DEBUG [{book_name}]: search status={r.status_code}")
+
         if r.status_code != 200 or not r.text.strip():
             return None
 
         books = r.json().get("data", {}).get("books", [])
+
+        if DEBUG:
+            print(f"🔬 DEBUG [{book_name}]: מצא {len(books)} תוצאות")
+            for i, b in enumerate(books[:5]):
+                print(f"   {i+1}. ID={b.get('ID')} | NAME={b.get('NAME')}")
+
         if not books:
             return None
 
@@ -168,15 +180,28 @@ def check_book(book_name, cutoff):
             f"https://simania.co.il/api/book/{book_id}/sellers",
             headers=headers, timeout=10
         )
+
+        if DEBUG:
+            print(f"🔬 DEBUG [{book_name}]: בודק sellers של ID={book_id}, status={r2.status_code}")
+
         if r2.status_code != 200 or not r2.text.strip():
             return None
 
         sellers = r2.json().get("sellers", [])
+
+        if DEBUG:
+            print(f"🔬 DEBUG [{book_name}]: מצא {len(sellers)} מוכרים")
+            for i, s in enumerate(sellers[:5]):
+                print(f"   מוכר {i+1}: updatedAt={s.get('updatedAt')}")
+            print(f"🔬 DEBUG [{book_name}]: cutoff={cutoff}")
+
         for s in sellers:
             try:
                 raw = s["updatedAt"]
                 updated_naive = datetime.strptime(raw[:24], "%a %b %d %Y %H:%M:%S")
                 updated = updated_naive.replace(tzinfo=UTC)
+                if DEBUG:
+                    print(f"   → seller updated={updated}, cutoff={cutoff}, match={updated >= cutoff}")
                 if updated >= cutoff:
                     return {
                         "book_name": book_name,
@@ -184,7 +209,9 @@ def check_book(book_name, cutoff):
                         "url": f"https://simania.co.il/book/{book_id}",
                         "updated_at": updated.astimezone(ISRAEL_TZ).strftime("%d/%m/%Y %H:%M"),
                     }
-            except Exception:
+            except Exception as e:
+                if DEBUG:
+                    print(f"   ⚠️ שגיאה בפארסינג תאריך: {e}")
                 pass
 
     except Exception as e:
