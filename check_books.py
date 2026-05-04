@@ -1,8 +1,9 @@
 """
 בודק עדכונים בסימניה ושולח מייל אם נמצאו ספרים מהרשימה.
+משתמש ב-cloudscraper כדי לעקוף את Cloudflare של סימניה.
 """
 
-import requests
+import cloudscraper
 import smtplib
 import json
 import os
@@ -19,12 +20,10 @@ STATE_FILE = "last_run.json"
 DEFAULT_WINDOW_HOURS = 4
 MAX_WINDOW_HOURS = 24 * 7
 
-DEBUG_BOOKS = ["מצור האפלה"]
-
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Referer": "https://simania.co.il/",
-}
+# יוצרים scraper שמתחזה לדפדפן אמיתי ועוקף Cloudflare
+scraper = cloudscraper.create_scraper(
+    browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
+)
 
 MY_BOOKS = [
     "יהודי-יער", "ספר התשובות", "ששת", "קוסם: רב-מג",
@@ -130,66 +129,35 @@ def calculate_window_hours():
 
 
 def check_book(book_name, cutoff):
-    DEBUG = True
-
     try:
-        r = requests.get(
+        r = scraper.get(
             "https://simania.co.il/api/search",
             params={"query": book_name},
-            headers=headers, timeout=10
+            timeout=15
         )
 
-        if DEBUG:
-            print(f"\n🔬 DEBUG [{book_name}]")
-            print(f"   URL: {r.url}")
-            print(f"   Status: {r.status_code}")
-            print(f"   Text length: {len(r.text)}")
-            print(f"   First 200 chars: {r.text[:200]}")
-
         if r.status_code != 200 or not r.text.strip():
-            if DEBUG:
-                print(f"   ❌ יציאה מוקדמת!")
             return None
 
         books = r.json().get("data", {}).get("books", [])
-
-        if DEBUG:
-            print(f"   נמצאו {len(books)} תוצאות חיפוש:")
-            for i, b in enumerate(books[:5]):
-                print(f"      {i+1}. ID={b.get('ID')} | NAME={b.get('NAME')}")
-
         if not books:
             return None
 
         book_id = books[0]["ID"]
-
-        r2 = requests.get(
+        r2 = scraper.get(
             f"https://simania.co.il/api/book/{book_id}/sellers",
-            headers=headers, timeout=10
+            timeout=15
         )
-
-        if DEBUG:
-            print(f"   sellers URL: {r2.url}")
-            print(f"   sellers status: {r2.status_code}")
 
         if r2.status_code != 200 or not r2.text.strip():
             return None
 
         sellers = r2.json().get("sellers", [])
-
-        if DEBUG:
-            print(f"   נמצאו {len(sellers)} מוכרים:")
-            for i, s in enumerate(sellers[:5]):
-                print(f"      מוכר {i+1}: updatedAt={s.get('updatedAt')}")
-            print(f"   cutoff: {cutoff}")
-
         for s in sellers:
             try:
                 raw = s["updatedAt"]
                 updated_naive = datetime.strptime(raw[:24], "%a %b %d %Y %H:%M:%S")
                 updated = updated_naive.replace(tzinfo=UTC)
-                if DEBUG:
-                    print(f"      → updated={updated}, match={updated >= cutoff}")
                 if updated >= cutoff:
                     return {
                         "book_name": book_name,
@@ -197,9 +165,8 @@ def check_book(book_name, cutoff):
                         "url": f"https://simania.co.il/book/{book_id}",
                         "updated_at": updated.astimezone(ISRAEL_TZ).strftime("%d/%m/%Y %H:%M"),
                     }
-            except Exception as e:
-                if DEBUG:
-                    print(f"      ⚠️ שגיאת פארסינג: {e}")
+            except Exception:
+                pass
 
     except Exception as e:
         print(f"⚠️ שגיאה ב-{book_name}: {e}")
