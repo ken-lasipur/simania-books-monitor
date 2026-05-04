@@ -129,6 +129,8 @@ def calculate_window_hours():
 
 
 def check_book(book_name, cutoff):
+    DEBUG = book_name == "מצור האפלה"
+
     try:
         r = scraper.get(
             "https://simania.co.il/api/search",
@@ -136,10 +138,24 @@ def check_book(book_name, cutoff):
             timeout=15
         )
 
+        if DEBUG:
+            print(f"\n🔬 DEBUG [{book_name}]")
+            print(f"   URL: {r.url}")
+            print(f"   Status: {r.status_code}")
+            print(f"   Text length: {len(r.text)}")
+            print(f"   First 300 chars: {r.text[:300]}")
+
         if r.status_code != 200 or not r.text.strip():
+            if DEBUG:
+                print(f"   ❌ יציאה מוקדמת!")
             return None
 
         books = r.json().get("data", {}).get("books", [])
+        if DEBUG:
+            print(f"   נמצאו {len(books)} תוצאות")
+            for i, b in enumerate(books[:3]):
+                print(f"      {i+1}. ID={b.get('ID')} | {b.get('NAME')}")
+
         if not books:
             return None
 
@@ -149,15 +165,27 @@ def check_book(book_name, cutoff):
             timeout=15
         )
 
+        if DEBUG:
+            print(f"   sellers status: {r2.status_code}")
+
         if r2.status_code != 200 or not r2.text.strip():
             return None
 
         sellers = r2.json().get("sellers", [])
+
+        if DEBUG:
+            print(f"   נמצאו {len(sellers)} מוכרים")
+            for i, s in enumerate(sellers[:3]):
+                print(f"      מוכר {i+1}: {s.get('updatedAt')}")
+            print(f"   cutoff: {cutoff}")
+
         for s in sellers:
             try:
                 raw = s["updatedAt"]
                 updated_naive = datetime.strptime(raw[:24], "%a %b %d %Y %H:%M:%S")
                 updated = updated_naive.replace(tzinfo=UTC)
+                if DEBUG:
+                    print(f"      → updated={updated}, match={updated >= cutoff}")
                 if updated >= cutoff:
                     return {
                         "book_name": book_name,
