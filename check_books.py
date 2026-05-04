@@ -1,7 +1,5 @@
 """
 בודק עדכונים בסימניה ושולח מייל אם נמצאו ספרים מהרשימה.
-שומר state בקובץ last_run.json — אז לא משנה כמה זמן עבר מהריצה האחרונה,
-לא יוחמצו ספרים ולא יישלחו התראות כפולות על אותו ספר.
 """
 
 import requests
@@ -18,10 +16,10 @@ ISRAEL_TZ = ZoneInfo("Asia/Jerusalem")
 UTC = ZoneInfo("UTC")
 STATE_FILE = "last_run.json"
 
-# ברירת מחדל: 4 שעות אחורה (חופף עם ריצה כל 3 שעות + מרווח ביטחון)
 DEFAULT_WINDOW_HOURS = 4
-# גג עליון: לא נחפש יותר מ-7 ימים אחורה גם אם הסקריפט לא רץ הרבה זמן
 MAX_WINDOW_HOURS = 24 * 7
+
+DEBUG_BOOKS = ["מצור האפלה"]
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -29,12 +27,10 @@ headers = {
 }
 
 MY_BOOKS = [
-    # רשימה מקורית
     "יהודי-יער", "ספר התשובות", "ששת", "קוסם: רב-מג",
     "גילס האכר מפרזון", "יוביק", "גני הירח",
     "ואליס", "המיתולוגיה הכנענית", "בחזרה לבראשית",
     "כוכב הנפילים",
-    # עדכון שני
     "נתיב התהילה", "לוחמי החלל", "חליפת חלל", "התוהו המזדחל",
     "ספר הזכרונות של מומינאבא", "דור ההמשך", "כוכב השביט מגיע לעמק המומינים",
     "קיץ מסכן (מסוכן) בעמק המומינים", "משפחת החיות המוזרות (1989)",
@@ -49,11 +45,9 @@ MY_BOOKS = [
     "שועי הלילה", "רצון הנודד", "אחראן ונביאו",
     "רצון הנודד / שועי הלילה / אחראן ונביאו", "ננסי הכנפיים",
     "טרילוגיית הננסים - שלושה כרכים", "ננסי המכרות", "ננסי המשאית", "הגביע והלהב",
-    # עדכון שלישי
     "אחיות הגורל", "בני החורין הקטנים", "אלבש חצות ליל", "כתר הרועים",
     "חרש החורף", "איש הקציר", "ראי נוע", "נשמות אחיות",
     "תאוות נדודים", "לב אפל", "השבועה והמידה", "פלדה ואבן", "החבורה",
-    # עדכון רביעי
     "צוערי החלל", "מספר החיה: 666", "דרך התהילה", "טירת האימים",
     "שער הזדון", "במבוך", "חולשחור", "מאורותיה של מכשפת השלג",
     "מכשפת השלג", "שדי התהום", "מלכודת מוות במבוך", "מסיכות מייהאם",
@@ -61,9 +55,7 @@ MY_BOOKS = [
     "מאבק הנסיכים - דרך הלוחם", "מאבק הנסיכים - דרך המכשף",
     "המכשף מפסגת הר האש", "ככה למדתי לעוף", "מפלצות הביצים ממאדים",
     "אל תלכו לישון!", "צמרמורת 46",
-    # עדכון חמישי
     "הקמיע מסמרקנד", "עינו של הגולם", "שער תלמי",
-    # עדכון שישי
     "כישוף אדום", "ים החרבה", "הסילמריליון", "החרב המוכתמת",
     "קבר הדרקון", "כליון הקסם", "מבוכים ודרקונים",
     "ספר החוקים לשחקן", "תיבת האוצרות: ציוד וכלי נשק לכל המקצועות",
@@ -86,19 +78,16 @@ MY_BOOKS = [
     "קרן ואלר", "עם עלות השחר", "עת לברזל", "אדון הכאוס",
     "כס האמירלין", "שובו של הדרקון", "היציאה מהשממה",
     "האופל", "אש הרקיע", "האמירלין הצעירה", "לב האבן", "אלנטריס",
-    # עדכון שביעי
     "כתבי אייזק אסימוב (כרך 1)", "כתבי אייזק אסימוב (כרך 2)",
     "כתבי אייזק אסימוב (כרך 3)", "כתבי אייזק אסימוב (כרך 4)",
     "האלים עצמם", "אבן בשחקים", "זרמי חלל", "מחר כפול תשע",
     "מערות הפלדה", "שמש ערמה", "אין איש פה, פרט...",
     "סוף הנצח", "הכוכבים כאבק", "אופוס 200", "לאקי סטאר",
-    # עדכון שמיני
     "מיילדות רוחנית", "מצור האפלה",
 ]
 
 
 def load_state():
-    """טעינת תאריך הריצה האחרונה (אם קיים)"""
     if not os.path.exists(STATE_FILE):
         return None
     try:
@@ -111,7 +100,6 @@ def load_state():
 
 
 def save_state(notified_book_ids):
-    """שמירת תאריך הריצה הנוכחית + ספרים שכבר התרענו עליהם"""
     data = {
         "last_run": datetime.now(tz=UTC).isoformat(),
         "notified_book_ids": notified_book_ids,
@@ -121,7 +109,6 @@ def save_state(notified_book_ids):
 
 
 def load_notified_ids():
-    """טעינת מזהי ספרים שכבר נשלחה עליהם התראה"""
     if not os.path.exists(STATE_FILE):
         return set()
     try:
@@ -133,56 +120,57 @@ def load_notified_ids():
 
 
 def calculate_window_hours():
-    """חישוב חלון בדיקה: מהריצה האחרונה ועד עכשיו, או ברירת מחדל"""
     last_run = load_state()
     if last_run is None:
         return DEFAULT_WINDOW_HOURS
-
     now = datetime.now(tz=UTC)
     diff = now - last_run
-    hours = diff.total_seconds() / 3600
-
-    # מרווח ביטחון של שעה (ליתר ביטחון על חפיפה)
-    hours = hours + 1
-
-    # לא פחות מברירת המחדל, לא יותר מהמקסימום
+    hours = diff.total_seconds() / 3600 + 1
     return max(DEFAULT_WINDOW_HOURS, min(hours, MAX_WINDOW_HOURS))
 
 
 def check_book(book_name, cutoff):
-    """בדיקת ספר אחד מול סימניה"""
-    # ספרים שאנחנו רוצים לדבג עליהם בעומק
-    DEBUG = book_name in ["מצור האפלה"]
+    DEBUG = book_name in DEBUG_BOOKS
 
     try:
         r = requests.get(
-            f"https://simania.co.il/api/search?query={book_name}",
+            "https://simania.co.il/api/search",
+            params={"query": book_name},
             headers=headers, timeout=10
         )
+
         if DEBUG:
-            print(f"\n🔬 DEBUG [{book_name}]: search status={r.status_code}")
+            print(f"\n🔬 DEBUG [{book_name}]")
+            print(f"   URL: {r.url}")
+            print(f"   Status: {r.status_code}")
+            print(f"   Text length: {len(r.text)}")
+            print(f"   First 200 chars: {r.text[:200]}")
 
         if r.status_code != 200 or not r.text.strip():
+            if DEBUG:
+                print(f"   ❌ יציאה מוקדמת!")
             return None
 
         books = r.json().get("data", {}).get("books", [])
 
         if DEBUG:
-            print(f"🔬 DEBUG [{book_name}]: מצא {len(books)} תוצאות")
+            print(f"   נמצאו {len(books)} תוצאות חיפוש:")
             for i, b in enumerate(books[:5]):
-                print(f"   {i+1}. ID={b.get('ID')} | NAME={b.get('NAME')}")
+                print(f"      {i+1}. ID={b.get('ID')} | NAME={b.get('NAME')}")
 
         if not books:
             return None
 
         book_id = books[0]["ID"]
+
         r2 = requests.get(
             f"https://simania.co.il/api/book/{book_id}/sellers",
             headers=headers, timeout=10
         )
 
         if DEBUG:
-            print(f"🔬 DEBUG [{book_name}]: בודק sellers של ID={book_id}, status={r2.status_code}")
+            print(f"   sellers URL: {r2.url}")
+            print(f"   sellers status: {r2.status_code}")
 
         if r2.status_code != 200 or not r2.text.strip():
             return None
@@ -190,10 +178,10 @@ def check_book(book_name, cutoff):
         sellers = r2.json().get("sellers", [])
 
         if DEBUG:
-            print(f"🔬 DEBUG [{book_name}]: מצא {len(sellers)} מוכרים")
+            print(f"   נמצאו {len(sellers)} מוכרים:")
             for i, s in enumerate(sellers[:5]):
-                print(f"   מוכר {i+1}: updatedAt={s.get('updatedAt')}")
-            print(f"🔬 DEBUG [{book_name}]: cutoff={cutoff}")
+                print(f"      מוכר {i+1}: updatedAt={s.get('updatedAt')}")
+            print(f"   cutoff: {cutoff}")
 
         for s in sellers:
             try:
@@ -201,7 +189,7 @@ def check_book(book_name, cutoff):
                 updated_naive = datetime.strptime(raw[:24], "%a %b %d %Y %H:%M:%S")
                 updated = updated_naive.replace(tzinfo=UTC)
                 if DEBUG:
-                    print(f"   → seller updated={updated}, cutoff={cutoff}, match={updated >= cutoff}")
+                    print(f"      → updated={updated}, match={updated >= cutoff}")
                 if updated >= cutoff:
                     return {
                         "book_name": book_name,
@@ -211,8 +199,7 @@ def check_book(book_name, cutoff):
                     }
             except Exception as e:
                 if DEBUG:
-                    print(f"   ⚠️ שגיאה בפארסינג תאריך: {e}")
-                pass
+                    print(f"      ⚠️ שגיאת פארסינג: {e}")
 
     except Exception as e:
         print(f"⚠️ שגיאה ב-{book_name}: {e}")
@@ -221,7 +208,6 @@ def check_book(book_name, cutoff):
 
 
 def send_email(found_books):
-    """שליחת מייל עם הספרים שנמצאו"""
     sender = os.environ["GMAIL_USER"]
     password = os.environ["GMAIL_APP_PASSWORD"]
     recipient = os.environ["RECIPIENT_EMAIL"]
@@ -284,16 +270,14 @@ def main():
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(lambda b: check_book(b, cutoff), MY_BOOKS))
 
-    # סינון ספרים שכבר נשלחה עליהם התראה
     found = [r for r in results if r]
     new_books = [b for b in found if b["book_id"] not in already_notified]
 
-    print(f"✅ נמצאו {len(found)} עדכונים, מתוכם {len(new_books)} חדשים")
+    print(f"\n✅ נמצאו {len(found)} עדכונים, מתוכם {len(new_books)} חדשים")
 
     if new_books:
         for b in new_books:
             print(f"   📖 {b['book_name']} — {b['url']}")
-
         try:
             send_email(new_books)
         except Exception as e:
@@ -302,9 +286,7 @@ def main():
     else:
         print("😴 אין ספרים חדשים להתריע עליהם")
 
-    # עדכון state — שומרים את כל המזהים (גם הישנים) לטווח שמיש
     all_notified = list(already_notified | {b["book_id"] for b in found})
-    # שמירה רק של 500 האחרונים כדי שהקובץ לא יתפח לאינסוף
     save_state(all_notified[-500:])
     print("💾 State נשמר")
 
