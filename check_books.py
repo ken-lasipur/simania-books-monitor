@@ -130,7 +130,7 @@ def calculate_window_hours():
 
 
 def check_book(book_name, cutoff):
-    DEBUG = book_name in DEBUG_BOOKS
+   DEBUG = True
 
     try:
         r = requests.get(
